@@ -1,0 +1,298 @@
+
+//
+#ifdef PROTO_HAS_A7105
+
+#include <avr/interrupt.h>   // Edit by cam - Added
+#include <util/delay.h>
+
+#include "common.h"
+#include "misc.h"            // Edit by cam - Added
+#include "mpx_serial.h"
+#include "iface_a7105.h"     // Edit by cam - Added
+
+static const u8 tx_channels[16][16] =
+{
+  { 10, 90, 20,100, 30,110, 40,120, 50,130, 60,140, 70,150, 80,160},
+  {160, 80,150, 70,140, 60,130, 50,120, 40,110, 30,100, 20, 90, 10},
+  { 10, 90, 80,160, 20,100, 70,150, 30,110, 60,140, 40,120, 50,130},
+  {130, 50,120, 40,140, 60,110, 30,150, 70,100, 20,160, 80, 90, 10},
+  { 40,120, 10, 90, 80,160, 20,100, 30,110, 60,140, 50,130, 70,150},
+  {150, 70,130, 50,140, 60,110, 30,100, 20,160, 80, 90, 10,120, 40},
+  { 80,160, 40,120, 10, 90, 30,110, 60,140, 50,130, 70,150, 20,100},
+  {100, 20,150, 70,130, 50,140, 60,110, 30, 90, 10,120, 40,160, 80},
+  { 80,160, 70,150, 60,140, 40,120, 10, 90, 50,130, 30,110, 20,100},
+  {100, 20,110, 30,130, 50, 90, 10,120, 40,140, 60,150, 70,160, 80},
+  { 70,150, 60,140, 80,160, 40,120, 10, 90, 30,110, 50,130, 20,100},
+  {100, 20,130, 50,110, 30, 90, 10,120, 40,160, 80,140, 60,150, 70},
+  { 70,150, 10, 90, 60,140, 20,100, 80,160, 40,120, 30,110, 50,130},
+  {130, 50,110, 30,120, 40,160, 80,100, 20,140, 60, 90, 10,150, 70},
+  { 70,150, 10, 90, 80,160, 60,140, 40,120, 30,110, 50,130, 20,100},
+  {100, 20,130, 50,110, 30,120, 40,140, 60,160, 80, 90, 10,150, 70},
+};
+
+
+volatile u32 flysky_id;
+u8 packet[21];
+volatile u8 chanrow;
+volatile u8 chancol;
+volatile u8 chanoffset;
+volatile u8 transmit_started =0;
+volatile u8 bind;
+
+
+void flysky_reg_init()
+{
+    u8 if_calibration1;
+	const u8 FBC_FLAG = 0x01;
+
+
+// Following checked & correct with FS-TM002 module.
+// Added 0x24 == 0x13 // VCO Current calibration.
+// Added 0x25 == 0x09 // VCO Bank calibration.
+
+/*
+static const u8 A7105_regs[] =
+{
+     -1,  0x42, 0x00, 0x14, 0x00,  -1 ,  -1 , 0x00, 0x00, 0x00, 0x00, 0x01, 0x21, 0x05, 0x00, 0x50,
+    0x9e, 0x4b, 0x00, 0x02, 0x16, 0x2b, 0x12, 0x00, 0x62, 0x80, 0x80, 0x00, 0x0a, 0x32, 0xc3, 0x0f,
+    0x13, 0xc3, 0x00,  -1,  0x13, 0x09, 0x3b, 0x00, 0x17, 0x47, 0x80, 0x03, 0x01, 0x45, 0x18, 0x00,
+    0x01, 0x0F,  -1,
+};
+*/
+
+//0
+A7105_WriteReg(A7105_01_MODE_CONTROL, 0x42);
+A7105_WriteReg(A7105_02_CALC,         0x00);
+A7105_WriteReg(A7105_03_FIFOI,        0x14);
+A7105_WriteReg(A7105_04_FIFOII,       0x00);
+//5
+//6
+A7105_WriteReg(A7105_07_RC_OSC_I,     0x00);
+A7105_WriteReg(A7105_08_RC_OSC_II,    0x00);
+A7105_WriteReg(A7105_09_RC_OSC_III,   0x00);
+A7105_WriteReg(A7105_0A_CK0_PIN,      0x00);
+A7105_WriteReg(A7105_0B_GPIO1_PIN1,   0x01);
+A7105_WriteReg(A7105_0C_GPIO2_PIN_II, 0x21);
+A7105_WriteReg(A7105_0D_CLOCK,        0x05);
+A7105_WriteReg(A7105_0E_DATA_RATE,    0x00);
+A7105_WriteReg(A7105_0F_CHANNEL,      0x50);
+
+A7105_WriteReg(A7105_10_PLL_II,       0x9E);
+A7105_WriteReg(A7105_11_PLL_III,      0x4B);
+A7105_WriteReg(A7105_12_PLL_IV,       0x00);
+A7105_WriteReg(A7105_13_PLL_V,        0x02);
+A7105_WriteReg(A7105_14_TX_I,         0x16);
+A7105_WriteReg(A7105_15_TX_II,        0x2B);
+A7105_WriteReg(A7105_16_DELAY_I,      0x12);
+A7105_WriteReg(A7105_17_DELAY_II,     0x00);
+A7105_WriteReg(A7105_18_RX,           0x62);
+A7105_WriteReg(A7105_19_RX_GAIN_I,    0x80);
+A7105_WriteReg(A7105_1A_RX_GAIN_II,   0x80);
+A7105_WriteReg(A7105_1B_RX_GAIN_III,  0x00);
+A7105_WriteReg(A7105_1C_RX_GAIN_IV,   0x0A);
+A7105_WriteReg(A7105_1D_RSSI_THOLD,   0x32);
+A7105_WriteReg(A7105_1E_ADC,          0xC3);
+A7105_WriteReg(A7105_1F_CODE_I,       0x0F);
+
+A7105_WriteReg(A7105_20_CODE_II,      0x13);
+A7105_WriteReg(A7105_21_CODE_III,     0xC3);
+A7105_WriteReg(A7105_22_IF_CALIB_I,   0x00);
+//23
+A7105_WriteReg(A7105_24_VCO_CURCAL,     0x13);
+A7105_WriteReg(A7105_25_VCO_SBCAL_I,    0x09);
+A7105_WriteReg(A7105_26_VCO_SBCAL_II,   0x3B);
+A7105_WriteReg(A7105_27_BATTERY_DET,    0x00);
+A7105_WriteReg(A7105_28_TX_TEST,        0x17);
+A7105_WriteReg(A7105_29_RX_DEM_TEST_I,  0x47);
+A7105_WriteReg(A7105_2A_RX_DEM_TEST_II, 0x80);
+A7105_WriteReg(A7105_2B_CPC,            0x03);
+A7105_WriteReg(A7105_2C_XTAL_TEST,      0x01);   
+A7105_WriteReg(A7105_2D_PLL_TEST,       0x45);
+A7105_WriteReg(A7105_2E_VCO_TEST_I,     0x18);
+A7105_WriteReg(A7105_2F_VCO_TEST_II,    0x00);
+
+A7105_WriteReg(A7105_30_IFAT,         0x01);
+A7105_WriteReg(A7105_31_RSCALE,       0x0F);
+//32
+
+/*
+    for(u8 i = 0; i < 0x33; i++)
+        if((s8)A7105_regs[i] != -1)
+            A7105_WriteReg(i, A7105_regs[i]);
+
+*/
+
+    A7105_WriteID(0x5475c52a);
+
+//  A7105_Strobe(A7105_STANDBY); //rick
+    A7105_Strobe(A7105_PLL); // VCO Bank Calibration must be done in PLL mode. rick.
+
+	// IF Filter Bank Calibration
+    A7105_WriteReg(0x02, FBC_FLAG); // Set FBC.
+    while(A7105_ReadReg(0x02) & FBC_FLAG); // Zero when calibration is complete.
+
+    if_calibration1 = A7105_ReadReg(0x22);
+
+    if(if_calibration1 & A7105_MASK_FBCF)
+	{
+        //Calibration failed...what do we do?
+		while(1);
+	}
+
+
+    // VCO Current Calibration
+//	A7105_WriteReg(0x24, 0x13); //Recomended calibration from A7105 Datasheet - in startup regs.
+
+    // VCO Bank Calibration
+//	A7105_WriteReg(0x26, 0x3b); //Recomended limits from A7105 Datasheet - in startup regs.
+
+    // Manual VCO Bank calibration
+//    A7105_WriteReg(0x25, 0x09); // - in startup regs.
+
+    A7105_Strobe(A7105_STANDBY);
+}
+
+
+void flysky_build_packet(void)
+{
+static u8 s_ch =0;
+
+	if(! s_ch)
+	{
+	gpio_set(PIND,LED_R); //toggle LED.
+  	send_mpx_telem();
+	}
+
+    packet[0] = bind ? 0xAA : 0x55; // packet type 0x55 is normal, 0xAA is bind packet.
+    packet[1] = (flysky_id >>  0) & 0xff;
+    packet[2] = (flysky_id >>  8) & 0xff;
+    packet[3] = (flysky_id >> 16) & 0xff;
+    packet[4] = (flysky_id >> 24) & 0xff;
+
+    // Value = pulse length in uS
+	
+	if(s_ch < Model.num_channels)
+	{
+s32 value = (s32) Channels[s_ch];
+		
+#define PPM_SCALING 500L // 500 for Most systems or 550 for Multiplex. e.g. 1500 + 500 us
+value = (s32) ((PPM_SCALING * value) / CHAN_MAX_VALUE) + 1500L;
+#undef PPM_SCALING
+
+		if(value < 900) value = 900;
+		else if(value > 2100) value = 2100;
+		packet[5 + s_ch*2] = value & 0xff;
+		packet[6 + s_ch*2] = (value >> 8) & 0xff;
+	}
+	else
+	{
+	packet[5 + s_ch*2] = 0xDC;
+	packet[6 + s_ch*2] = 0x05;
+	}
+
+
+	if(proto_mode ==  FLYSKY_MOD)
+	{
+		// On threshold set as 400 = 1500us + 20us, so 20us above centre
+        if(Channels[4] > CHAN_MAX_VALUE /25)    
+            packet[12] |= 0x20;  // Bit 13 of the rudder channel - JP Twister Quad LEDS
+        if(Channels[5] > CHAN_MAX_VALUE /25)
+            packet[10] |= 0x40;  // Bit 14 of the throttle channel will toggle the accessory (video camera)
+        if(Channels[6] > CHAN_MAX_VALUE /25)
+            packet[10] |= 0x80;  // Bit 15 of the throttle channel will toggle the accessory (still camera)
+    }
+
+	// if (Channels[4] > 3000) packet[12] |= 0x30;  //Edit by Cam - The quadcopter mod
+
+s_ch ++;
+if(s_ch > 7) s_ch =0;
+}
+
+
+static u16 real_cb()
+{
+A7105_Strobe(A7105_TX);
+transmit_started = 1;
+return 1500;
+}
+
+
+u16 flysky_cb()
+{
+	while(! transmit_started);
+	transmit_started = 0;
+	
+	flysky_build_packet();
+
+	// Wait for previous transmit to finish.
+	while( 0x01 & A7105_ReadReg(A7105_00_MODE)) { _delay_us(5); }	// wait for bit 0 to be 0.
+
+	if(bind) A7105_WriteReg(A7105_0F_CHANNEL, 1);
+	else A7105_WriteReg(A7105_0F_CHANNEL, (tx_channels[chanrow][chancol]) - chanoffset);
+
+	A7105_Strobe(A7105_RST_WRPTR);
+	A7105_FIFO_Write_Packet(packet, 21);
+
+	chancol = (chancol + 1) & 0x0F;
+
+return 0;
+}
+
+
+static void initialize(u8 state)
+{
+bind = state;
+
+	Model.tx_power = TXPOWER_6;
+
+    CLOCK_StopTimer();
+    
+	flysky_id = Model.fixed_id;
+	
+	A7105_Reset();
+	flysky_reg_init();
+	
+    chancol = 0;
+	chanrow = flysky_id & 0x0F;
+    chanoffset = (flysky_id >> 4) & 0x0F;
+	if(chanoffset > 9) chanoffset = 9; //rick
+    
+	if(bind)
+	{
+	// set bind power level.
+	A7105_SetPower(TXPOWER_0);
+	PROTOCOL_SetBindState(0xFFFFFFFF);
+    }
+	else
+	{
+	// set normal power level.
+	A7105_SetPower(Model.tx_power);
+	PROTOCOL_SetBindState(0);
+	}
+
+	A7105_Strobe(A7105_RST_WRPTR);
+	CLOCK_StartTimer(25000, &real_cb);
+	while(1) flysky_cb();
+}
+
+
+const void * FLYSKY_Cmds(enum ProtoCmds cmd)
+{
+    switch(cmd)
+	{
+        case PROTOCMD_INIT:  initialize(0); return 0;
+        case PROTOCMD_DEINIT: return 0;
+        case PROTOCMD_CHECK_AUTOBIND: return 0;
+        case PROTOCMD_BIND:  initialize(1); return 0;
+        case PROTOCMD_NUMCHAN: return (void *)8L;
+        case PROTOCMD_DEFAULT_NUMCHAN: return (void *)8L;
+		//Edit by cam - Here we cast id to a void pointer to a const memory location
+		//On ARM void pointers are 32 bit, on AVR they are 16 bit, hence a compiler warning
+		//We don't use this line so comment it out.
+        //case PROTOCMD_CURRENT_ID: return (void *)((unsigned long)id);  
+        case PROTOCMD_TELEMETRYSTATE: return (void *)(long)-1;
+        default: break;
+    }
+    return 0;
+}
+#endif
