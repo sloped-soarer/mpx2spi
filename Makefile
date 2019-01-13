@@ -48,7 +48,7 @@ LIBDIRS =
 LIBS =
 
 ## Partial build
-default: $(TARGET).elf Makefile
+default: $(TARGET).elf
 
 ## Compile
 # .SECONDEXPANSION:
@@ -61,11 +61,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 
 
 ## Link
-$(TARGET).elf: $(O_FILES)
+$(TARGET).elf: $(O_FILES) $(HEADERS) Makefile
 	@echo LINKING $(O_FILES)
 	@$(CC) $(LDFLAGS) $(LINKONLYOBJECTS) $(LIBDIRS) $(LIBS) -o $@  $^ # $^ Link all objects regardless of age.
 
-.PHONY: hex eep lss clean gccversion
+.PHONY: hex eep lss clean all gccversion
 
 hex: $(TARGET).elf
 	avr-objcopy -O ihex $(HEX_FLASH_FLAGS)  $<  $(TARGET).hex
@@ -82,8 +82,6 @@ clean:
 
 ## Complete Rebuild 
 all: clean gccversion hex eep lss
-#all: Makefile $(TARGET).elf src/%.h
-#	@echo $(O_FILES)
 
 ## Display compiler version.
 gccversion:
