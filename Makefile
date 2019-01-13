@@ -59,9 +59,10 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@echo COMPILING $< 
 	@$(CC) $(INCLUDES) $(CFLAGS) -c -o $@  $<
 
+$(O_FILES): $(HEADERS) Makefile
 
 ## Link
-$(TARGET).elf: $(O_FILES) $(HEADERS) Makefile
+$(TARGET).elf: $(O_FILES)
 	@echo LINKING $(O_FILES)
 	@$(CC) $(LDFLAGS) $(LINKONLYOBJECTS) $(LIBDIRS) $(LIBS) -o $@  $^ # $^ Link all objects regardless of age.
 
